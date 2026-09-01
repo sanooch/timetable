@@ -143,19 +143,26 @@
       }
     }
 
-    // 1. 시간표 불러오기
+// 1. 시간표 불러오기 (개선 버전)
     async function loadTimetable() {
-      const now = new Date();
-      const ay = now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1;
-      const sem = (now.getMonth() >= 2 && now.getMonth() <= 7) ? 1 : 2;
-
-      const url = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      // AY, SEM을 제거하고 날짜(TI_FROM_YMD, TI_TO_YMD)와 학년/반 기준으로만 명확히 요청
+      const url = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
         const res = await fetch(url);
         const data = await res.json();
-        const rows = data?.misTimetable?.[1]?.row || [];
+        
+        // 데이터가 없는 경우 (방학/휴교/미등록)
+        if (!data.misTimetable || !data.misTimetable[1] || !data.misTimetable[1].row) {
+          document.getElementById('timetable-box').innerHTML = `
+            <div style="padding: 24px 0; color: var(--text-muted);">
+              등록된 이번 주 시간표가 없습니다.<br>
+              <span style="font-size: 0.75rem;">(방학 기간이거나 나이스에 등록된 수업이 없는 기간입니다.)</span>
+            </div>`;
+          return;
+        }
 
+        const rows = data.misTimetable[1].row;
         const dayNames = ['월', '화', '수', '목', '금'];
         let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
 
@@ -170,7 +177,8 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
-            const match = rows.find(r => r.ALL_TI_YMD === target && r.PERIO === String(p));
+            // PERIO 및 학급 매칭
+            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).trim() === String(p));
             const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
           });
@@ -181,10 +189,10 @@
         document.getElementById('timetable-box').innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        document.getElementById('timetable-box').innerHTML = `<p style="color:red;">시간표 데이터를 불러오지 못했습니다.</p>`;
+        console.error(e);
+        document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
       }
     }
-
     // 2. 급식 불러오기
     async function loadMeals() {
       const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
