@@ -15,7 +15,6 @@
       --border: #E2E8F0;
       --accent: #F59E0B;
       --today-col: #F0FDF4;
-      --today-border: #86EFAC;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -26,14 +25,13 @@
         --border: #334155;
         --primary-light: #312E81;
         --today-col: #064E3B33;
-        --today-border: #059669;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; }
     
     header { text-align: center; margin-bottom: 20px; padding-top: 8px; }
-    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 8px; }
+    header h1 { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
     header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
 
     .nav-tabs { display: flex; gap: 8px; background: var(--border); padding: 4px; border-radius: 12px; margin-bottom: 16px; }
@@ -43,7 +41,6 @@
     .card { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
     .card-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
 
-    /* 시간표 테이블 */
     table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.85rem; }
     th { padding: 8px 4px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; }
     td { padding: 10px 4px; border-bottom: 1px solid var(--border); }
@@ -51,7 +48,6 @@
     td.today-col { background: var(--today-col); font-weight: 700; color: var(--primary); }
     td.period-col { font-weight: 600; color: var(--text-muted); width: 14%; }
 
-    /* 급식 리스트 */
     .meal-date-badge { display: inline-block; background: var(--primary-light); color: var(--primary); font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
     .meal-list { list-style: none; margin-top: 8px; }
     .meal-list li { padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 0.95rem; display: flex; justify-content: space-between; }
@@ -73,38 +69,39 @@
     <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
   </div>
 
-  <!-- 시간표 화면 -->
+  <!-- 주간 시간표 탭 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
-        <span>이번 주 수업 시간표</span>
+        <span>2학년 3반 수업 시간표</span>
         <span id="timetable-range" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>
       </div>
       <div id="timetable-box" class="loading">시간표를 조회하고 있습니다...</div>
     </div>
   </div>
 
-  <!-- 급식 화면 -->
+  <!-- 주간 급식 탭 -->
   <div id="tab-meals" style="display: none;">
     <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
   </div>
 
   <script>
-    // ========== 설정 정보 ==========
+    // ==========================================
+    // [설정] 본인의 NEIS API 키를 아래에 입력하세요
+    // ==========================================
     const CONFIG = {
-      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // 본인의 NEIS API 키 입력
+      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // <--- 여기에 본인 API 키 입력
       ATPT_CODE: "J10",        // 경기도교육청
       SCHOOL_CODE: "7551016",  // 백현중학교
       GRADE: "2",
       CLASS: "3"
     };
 
-    // 주간 날짜 계산 (월~금)
+    // 월~금 날짜 계산
     function getWeekRange() {
       const now = new Date();
-      const currentDay = now.getDay(); // 0: 일, 1: 월 ...
+      const currentDay = now.getDay();
       const distanceToMon = currentDay === 0 ? -6 : 1 - currentDay;
-      
       const mon = new Date(now);
       mon.setDate(now.getDate() + distanceToMon);
 
@@ -129,7 +126,6 @@
     const toYMD = formatDateYMD(weekDays[4]);
     const todayYMD = formatDateYMD(new Date());
 
-    // 탭 전환
     function switchTab(tab) {
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
       if (tab === 'timetable') {
@@ -143,26 +139,38 @@
       }
     }
 
-// 1. 시간표 불러오기 (개선 버전)
+    // CORS 우회 fetch 헬퍼
+    async function fetchWithProxy(targetUrl) {
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(proxyUrl);
+      return await res.json();
+    }
+
+    // 1. 2학년 3반 시간표 조회
     async function loadTimetable() {
-      // AY, SEM을 제거하고 날짜(TI_FROM_YMD, TI_TO_YMD)와 학년/반 기준으로만 명확히 요청
-      const url = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      // 주간 전체 데이터를 가져와서 2학년 3반만 엄격 필터링 (반 표기 '3', '03', '3반' 완벽 대응)
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=1000&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
-        const res = await fetch(url);
-        const data = await res.json();
-        
-        // 데이터가 없는 경우 (방학/휴교/미등록)
-        if (!data.misTimetable || !data.misTimetable[1] || !data.misTimetable[1].row) {
+        const data = await fetchWithProxy(neisUrl);
+        const rawRows = data?.misTimetable?.[1]?.row || [];
+
+        // 2학년 3반 데이터만 추출
+        const rows = rawRows.filter(r => {
+          const g = String(r.GRADE).trim();
+          const c = String(r.CLASS_NM).replace(/[^0-9]/g, '').trim();
+          return g === CONFIG.GRADE && c === CONFIG.CLASS;
+        });
+
+        if (rows.length === 0) {
           document.getElementById('timetable-box').innerHTML = `
             <div style="padding: 24px 0; color: var(--text-muted);">
               등록된 이번 주 시간표가 없습니다.<br>
-              <span style="font-size: 0.75rem;">(방학 기간이거나 나이스에 등록된 수업이 없는 기간입니다.)</span>
+              <span style="font-size: 0.75rem;">(방학/휴교 또는 나이스 등록 대기 중)</span>
             </div>`;
           return;
         }
 
-        const rows = data.misTimetable[1].row;
         const dayNames = ['월', '화', '수', '목', '금'];
         let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
 
@@ -177,7 +185,6 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
-            // PERIO 및 학급 매칭
             const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).trim() === String(p));
             const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
@@ -193,13 +200,13 @@
         document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
       }
     }
-    // 2. 급식 불러오기
+
+    // 2. 주간 급식 조회
     async function loadMeals() {
-      const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
+      const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
 
       try {
-        const res = await fetch(url);
-        const data = await res.json();
+        const data = await fetchWithProxy(neisUrl);
         const rows = data?.mealServiceDietInfo?.[1]?.row || [];
 
         const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
@@ -219,7 +226,6 @@
           `;
 
           if (meal && meal.DDISH_NM) {
-            // 알레르기 번호 제거 및 메뉴 정제
             const menuItems = meal.DDISH_NM.split('<br/>').map(item => item.replace(/\([0-9\.]+\)/g, '').trim()).filter(Boolean);
             html += `<ul class="meal-list">`;
             menuItems.forEach(item => {
@@ -238,11 +244,11 @@
 
         document.getElementById('meals-box').innerHTML = html;
       } catch (e) {
-        document.getElementById('meals-box').innerHTML = `<p style="color:red;">급식 데이터를 불러오지 못했습니다.</p>`;
+        console.error(e);
+        document.getElementById('meals-box').innerHTML = `<p style="color:red; padding: 20px 0;">급식 데이터를 불러오지 못했습니다.</p>`;
       }
     }
 
-    // 초기 실행
     window.onload = () => {
       const today = new Date();
       document.getElementById('current-date-text').innerText = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 기준`;
