@@ -15,6 +15,7 @@
       --border: #E2E8F0;
       --accent: #F59E0B;
       --today-col: #F0FDF4;
+      --today-border: #86EFAC;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -25,13 +26,14 @@
         --border: #334155;
         --primary-light: #312E81;
         --today-col: #064E3B33;
+        --today-border: #059669;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; }
     
     header { text-align: center; margin-bottom: 20px; padding-top: 8px; }
-    header h1 { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; }
+    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 8px; }
     header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
 
     .nav-tabs { display: flex; gap: 8px; background: var(--border); padding: 4px; border-radius: 12px; margin-bottom: 16px; }
@@ -61,7 +63,7 @@
 
   <header>
     <h1>🎒 백현중 2학년 3반</h1>
-    <p id="current-date-text">로딩 중...</p>
+    <p id="current-date-text">데이터를 불러오는 중...</p>
   </header>
 
   <div class="nav-tabs">
@@ -69,25 +71,23 @@
     <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
   </div>
 
-  <!-- 주간 시간표 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
-        <span>2학년 3반 수업 시간표</span>
+        <span>이번 주 수업 시간표</span>
         <span id="timetable-range" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>
       </div>
-      <div id="timetable-box" class="loading">시간표를 불러오고 있습니다...</div>
+      <div id="timetable-box" class="loading">시간표를 조회하고 있습니다...</div>
     </div>
   </div>
 
-  <!-- 주간 급식 -->
   <div id="tab-meals" style="display: none;">
-    <div id="meals-box" class="loading">급식 식단을 불러오고 있습니다...</div>
+    <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
   </div>
 
   <script>
     const CONFIG = {
-      API_KEY: "b92966f92f674df290705b1fd8e6087a",
+      API_KEY: "발급받은API키",  // <--- 본인 API 키 입력
       ATPT_CODE: "J10",
       SCHOOL_CODE: "7551016",
       GRADE: "2",
@@ -98,6 +98,7 @@
       const now = new Date();
       const currentDay = now.getDay();
       const distanceToMon = currentDay === 0 ? -6 : 1 - currentDay;
+      
       const mon = new Date(now);
       mon.setDate(now.getDate() + distanceToMon);
 
@@ -135,49 +136,27 @@
       }
     }
 
-    // JSONP 방식 직통 데이터 호출 (CORS / 프록시 불필요)
-    function fetchJsonp(url) {
-      return new Promise((resolve, reject) => {
-        const callbackName = 'neis_cb_' + Math.random().toString(36).substr(2, 8);
-        const script = document.createElement('script');
-        
-        window[callbackName] = (data) => {
-          cleanup();
-          resolve(data);
-        };
-
-        const timer = setTimeout(() => {
-          cleanup();
-          reject(new Error('timeout'));
-        }, 5000);
-
-        function cleanup() {
-          if (timer) clearTimeout(timer);
-          if (document.body.contains(script)) document.body.removeChild(script);
-          delete window[callbackName];
-        }
-
-        script.src = `${url}&callback=${callbackName}`;
-        script.onerror = () => {
-          cleanup();
-          reject(new Error('script_error'));
-        };
-
-        document.body.appendChild(script);
-      });
+    // CORS 우회 fetch 헬퍼
+    async function fetchWithProxy(targetUrl) {
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(proxyUrl);
+      return await res.json();
     }
 
-    // 1. 시간표 조회
+    // 1. 시간표 불러오기
     async function loadTimetable() {
-      const box = document.getElementById('timetable-box');
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=2026&SEM=2&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=1000&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
-        const data = await fetchJsonp(neisUrl);
+        const data = await fetchWithProxy(neisUrl);
         const rows = data?.misTimetable?.[1]?.row || [];
 
         if (rows.length === 0) {
-          box.innerHTML = `<div style="padding: 24px 0; color: var(--text-muted);">등록된 이번 주 시간표가 없습니다.</div>`;
+          document.getElementById('timetable-box').innerHTML = `
+            <div style="padding: 24px 0; color: var(--text-muted);">
+              등록된 이번 주 시간표가 없습니다.<br>
+              <span style="font-size: 0.75rem;">(방학 기간이거나 등록 대기 중입니다.)</span>
+            </div>`;
           return;
         }
 
@@ -196,27 +175,27 @@
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
             const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).trim() === String(p));
-            const subject = match && match.ITRT_CNTNT ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
+            const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
           });
           tableHtml += `</tr>`;
         }
         tableHtml += `</tbody></table>`;
 
-        box.innerHTML = tableHtml;
+        document.getElementById('timetable-box').innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">시간표를 불러오지 못했습니다.</div>`;
+        console.error(e);
+        document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
       }
     }
 
-    // 2. 급식 조회
+    // 2. 급식 불러오기
     async function loadMeals() {
-      const box = document.getElementById('meals-box');
       const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
 
       try {
-        const data = await fetchJsonp(neisUrl);
+        const data = await fetchWithProxy(neisUrl);
         const rows = data?.mealServiceDietInfo?.[1]?.row || [];
 
         const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
@@ -252,9 +231,10 @@
           html += `</div>`;
         });
 
-        box.innerHTML = html;
+        document.getElementById('meals-box').innerHTML = html;
       } catch (e) {
-        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">급식 데이터를 불러오지 못했습니다.</div>`;
+        console.error(e);
+        document.getElementById('meals-box').innerHTML = `<p style="color:red; padding: 20px 0;">급식 데이터를 불러오지 못했습니다.</p>`;
       }
     }
 
