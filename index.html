@@ -69,7 +69,7 @@
     <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
   </div>
 
-  <!-- 시간표 탭 -->
+  <!-- 주간 시간표 탭 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
@@ -80,14 +80,14 @@
     </div>
   </div>
 
-  <!-- 급식 탭 -->
+  <!-- 주간 급식 탭 -->
   <div id="tab-meals" style="display: none;">
     <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
   </div>
 
   <script>
     const CONFIG = {
-      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // <--- 본인의 NEIS API 키 입력
+      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // <--- 본인 API Key 입력
       ATPT_CODE: "J10",        // 경기도교육청
       SCHOOL_CODE: "7551016",  // 백현중학교
       GRADE: "2",
@@ -135,30 +135,24 @@
       }
     }
 
-    // 다중 프록시 자동 폴백 (안정성 확보)
+    // CORS 프록시 및 JSON 파싱 안정화
     async function fetchNeisData(targetUrl) {
-      const proxies = [
-        targetUrl, // 1순위: 직접 호출
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`, // 2순위: allorigins
-        `https://corsproxy.io/?${encodeURIComponent(targetUrl)}` // 3순위: corsproxy
-      ];
-
-      for (let url of proxies) {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) continue;
-          const data = await res.json();
-          if (data) return data;
-        } catch (e) {
-          // 실패 시 다음 프록시로 자동 재시도
-        }
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+      try {
+        const res = await fetch(proxyUrl);
+        if (!res.ok) throw new Error("네트워크 응답 오류");
+        const jsonWrapper = await res.json();
+        return JSON.parse(jsonWrapper.contents);
+      } catch (err) {
+        // 백업 프록시 시도
+        const backupUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
+        const resBackup = await fetch(backupUrl);
+        return await resBackup.json();
       }
-      throw new Error("모든 프록시 호출 실패");
     }
 
     // 1. 시간표 조회
     async function loadTimetable() {
-      // API에서 학년/반을 직접 인자로 전달 (가장 표준적인 나이스 호출 규격)
       const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
@@ -169,7 +163,7 @@
           document.getElementById('timetable-box').innerHTML = `
             <div style="padding: 24px 0; color: var(--text-muted);">
               등록된 이번 주 시간표가 없습니다.<br>
-              <span style="font-size: 0.75rem;">(방학/휴교 또는 나이스 등록 대기 중)</span>
+              <span style="font-size: 0.75rem;">(방학 기간이거나 나이스 등록 대기 중입니다.)</span>
             </div>`;
           return;
         }
@@ -199,7 +193,7 @@
         document.getElementById('timetable-box').innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        console.error(e);
+        console.error("시간표 오류 상세:", e);
         document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
       }
     }
@@ -247,7 +241,7 @@
 
         document.getElementById('meals-box').innerHTML = html;
       } catch (e) {
-        console.error(e);
+        console.error("급식 오류 상세:", e);
         document.getElementById('meals-box').innerHTML = `<p style="color:red; padding: 20px 0;">급식 데이터를 불러오지 못했습니다.</p>`;
       }
     }
