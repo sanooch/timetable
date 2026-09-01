@@ -135,7 +135,6 @@
       }
     }
 
-    // JSONP 방식 직통 데이터 호출
     function fetchJsonp(url) {
       return new Promise((resolve, reject) => {
         const callbackName = 'neis_cb_' + Math.random().toString(36).substr(2, 8);
@@ -196,16 +195,18 @@
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
             
-            // 교시 매칭
-            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).replace(/[^0-9]/g, '') === String(p));
+            // 날짜 및 교시 일치 항목 탐색
+            const match = rows.find(r => {
+              const rYmd = String(r.ALL_TI_YMD || '').trim();
+              const rPerio = String(r.PERIO || '').replace(/[^0-9]/g, '');
+              return rYmd === target && rPerio === String(p);
+            });
             
             let subject = '-';
-            if (match) {
-              if (match.ITRT_CNTNT && match.ITRT_CNTNT.trim() !== '') {
-                subject = match.ITRT_CNTNT.replace(/[\[\]]/g, '').trim();
-              } else {
-                // ITRT_CNTNT가 null이거나 공백일 경우 (4교시 등)
-                subject = '자율/행사';
+            if (match && match.ITRT_CNTNT) {
+              const cleaned = String(match.ITRT_CNTNT).replace(/[\[\]]/g, '').trim();
+              if (cleaned.length > 0) {
+                subject = cleaned;
               }
             }
 
@@ -218,6 +219,7 @@
         box.innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
+        console.error(e);
         box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">시간표를 불러오지 못했습니다.</div>`;
       }
     }
