@@ -69,7 +69,6 @@
     <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
   </div>
 
-  <!-- 주간 시간표 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
@@ -80,7 +79,6 @@
     </div>
   </div>
 
-  <!-- 주간 급식 -->
   <div id="tab-meals" style="display: none;">
     <div id="meals-box" class="loading">급식 식단을 불러오고 있습니다...</div>
   </div>
@@ -195,18 +193,21 @@
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
             
-            // 날짜 및 교시 일치 항목 탐색
-            const match = rows.find(r => {
+            // 해당 날짜/교시 데이터 중 유효한 과목명이 있는 항목을 우선 탐색
+            const matchedRows = rows.filter(r => {
               const rYmd = String(r.ALL_TI_YMD || '').trim();
               const rPerio = String(r.PERIO || '').replace(/[^0-9]/g, '');
               return rYmd === target && rPerio === String(p);
             });
-            
+
             let subject = '-';
-            if (match && match.ITRT_CNTNT) {
-              const cleaned = String(match.ITRT_CNTNT).replace(/[\[\]]/g, '').trim();
-              if (cleaned.length > 0) {
-                subject = cleaned;
+            for (const r of matchedRows) {
+              if (r.ITRT_CNTNT && typeof r.ITRT_CNTNT === 'string') {
+                const cleaned = r.ITRT_CNTNT.replace(/[\*\[\]_\-]/g, '').trim();
+                if (cleaned.length > 0) {
+                  subject = cleaned;
+                  break;
+                }
               }
             }
 
