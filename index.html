@@ -74,7 +74,7 @@
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
-        <span>이번 주 수업 시간표</span>
+        <span>2학년 3반 수업 시간표</span>
         <span id="timetable-range" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>
       </div>
       <div id="timetable-box" class="loading">시간표를 조회하고 있습니다...</div>
@@ -87,7 +87,7 @@
 
   <script>
     const CONFIG = {
-      API_KEY: "발급받은API키",  // <--- 본인 API 키 입력
+      API_KEY: "b92966f92f674df290705b1fd8e6087a",
       ATPT_CODE: "J10",
       SCHOOL_CODE: "7551016",
       GRADE: "2",
@@ -136,16 +136,36 @@
       }
     }
 
-    // CORS 우회 fetch 헬퍼
+    // CORS 우회 및 이중 프록시 폴백
     async function fetchWithProxy(targetUrl) {
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-      const res = await fetch(proxyUrl);
-      return await res.json();
+      const endpoints = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
+      ];
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            const data = await res.json();
+            if (data) return data;
+          }
+        } catch (e) {
+          // 백업 엔드포인트 자동 시도
+        }
+      }
+      throw new Error("데이터 통신 실패");
     }
 
-    // 1. 시간표 불러오기
+    // 1. 시간표 불러오기 (과목명 null/공백 보완)
     async function loadTimetable() {
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=1000&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const ay = currentMonth >= 3 ? currentYear : currentYear - 1;
+      const sem = (currentMonth >= 3 && currentMonth <= 8) ? 1 : 2;
+
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
         const data = await fetchWithProxy(neisUrl);
@@ -174,8 +194,19 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
-            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).trim() === String(p));
-            const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
+            
+            // 교시 숫자 비교
+            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).replace(/[^0-9]/g, '') === String(p));
+            
+            let subject = '-';
+            if (match) {
+              if (match.ITRT_CNTNT && match.ITRT_CNTNT.trim() !== '') {
+                subject = match.ITRT_CNTNT.replace(/[\[\]]/g, '').trim();
+              } else {
+                subject = '자율/행사';
+              }
+            }
+            
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
           });
           tableHtml += `</tr>`;
