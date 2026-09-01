@@ -135,7 +135,7 @@
       }
     }
 
-    // JSONP 방식 직통 데이터 호출 (CORS / 프록시 불필요)
+    // JSONP 방식 직통 데이터 호출
     function fetchJsonp(url) {
       return new Promise((resolve, reject) => {
         const callbackName = 'neis_cb_' + Math.random().toString(36).substr(2, 8);
@@ -195,8 +195,20 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
-            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).trim() === String(p));
-            const subject = match && match.ITRT_CNTNT ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
+            
+            // 교시 매칭
+            const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).replace(/[^0-9]/g, '') === String(p));
+            
+            let subject = '-';
+            if (match) {
+              if (match.ITRT_CNTNT && match.ITRT_CNTNT.trim() !== '') {
+                subject = match.ITRT_CNTNT.replace(/[\[\]]/g, '').trim();
+              } else {
+                // ITRT_CNTNT가 null이거나 공백일 경우 (4교시 등)
+                subject = '자율/행사';
+              }
+            }
+
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
           });
           tableHtml += `</tr>`;
