@@ -151,23 +151,33 @@
       }
     }
 
-    // 1. 시간표 조회
+    // 1. 시간표 조회 (나이스 중학교 API 규격 완벽 대응)
     async function loadTimetable() {
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const now = new Date();
+      // 학년도(3월 이전이면 전년도) 및 학기(3~8월 1학기, 9~2월 2학기) 계산
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const ay = currentMonth >= 3 ? currentYear : currentYear - 1;
+      const sem = (currentMonth >= 3 && currentMonth <= 8) ? 1 : 2;
+
+      // AY, SEM 필수 인자 포함
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
         const data = await fetchNeisData(neisUrl);
-        const rows = data?.misTimetable?.[1]?.row || [];
-
-        if (rows.length === 0) {
+        
+        // 나이스 API 응답 검증 (에러나 데이터 없음 응답 처리)
+        if (!data || !data.misTimetable || !data.misTimetable[1] || !data.misTimetable[1].row) {
+          const infoMsg = data?.RESULT?.MESSAGE || "등록된 이번 주 시간표가 없습니다.";
           document.getElementById('timetable-box').innerHTML = `
-            <div style="padding: 24px 0; color: var(--text-muted);">
-              등록된 이번 주 시간표가 없습니다.<br>
-              <span style="font-size: 0.75rem;">(방학 기간이거나 나이스 등록 대기 중입니다.)</span>
+            <div style="padding: 24px 0; color: var(--text-muted); line-height: 1.6;">
+              이번 주 시간표 정보가 없습니다.<br>
+              <span style="font-size: 0.75rem;">(${infoMsg})</span>
             </div>`;
           return;
         }
 
+        const rows = data.misTimetable[1].row;
         const dayNames = ['월', '화', '수', '목', '금'];
         let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
 
@@ -182,6 +192,8 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
+            
+            // 일자 & 교시 매칭
             const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).replace(/[^0-9]/g, '') === String(p));
             const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
@@ -193,7 +205,7 @@
         document.getElementById('timetable-box').innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        console.error("시간표 오류 상세:", e);
+        console.error("시간표 처리 오류:", e);
         document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
       }
     }
