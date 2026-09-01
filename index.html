@@ -69,7 +69,6 @@
     <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
   </div>
 
-  <!-- 주간 시간표 탭 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
@@ -80,14 +79,13 @@
     </div>
   </div>
 
-  <!-- 주간 급식 탭 -->
   <div id="tab-meals" style="display: none;">
     <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
   </div>
 
   <script>
     const CONFIG = {
-      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // <--- 본인 API Key 입력
+      API_KEY: "발급받은API키",  // <--- 본인 API Key 입력
       ATPT_CODE: "J10",        // 경기도교육청
       SCHOOL_CODE: "7551016",  // 백현중학교
       GRADE: "2",
@@ -135,49 +133,62 @@
       }
     }
 
-    // CORS 프록시 및 JSON 파싱 안정화
+    // 타임아웃 5초 적용 및 안전한 프록시 호출
     async function fetchNeisData(targetUrl) {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+      const fetchWithTimeout = async (url, timeoutMs = 5000) => {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          clearTimeout(id);
+          return res;
+        } catch (e) {
+          clearTimeout(id);
+          throw e;
+        }
+      };
+
+      // 1순위: AllOrigins get API
       try {
-        const res = await fetch(proxyUrl);
-        if (!res.ok) throw new Error("네트워크 응답 오류");
-        const jsonWrapper = await res.json();
-        return JSON.parse(jsonWrapper.contents);
-      } catch (err) {
-        // 백업 프록시 시도
-        const backupUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`;
-        const resBackup = await fetch(backupUrl);
-        return await resBackup.json();
+        const res = await fetchWithTimeout(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.contents) {
+            return JSON.parse(data.contents);
+          }
+        }
+      } catch (e) {
+        console.warn("1차 프록시 실패, 백업 프록시 시도");
       }
+
+      // 2순위: CodeTabs 프록시
+      try {
+        const res = await fetchWithTimeout(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`);
+        if (res.ok) {
+          return await res.json();
+        }
+      } catch (e) {
+        console.warn("2차 프록시 실패");
+      }
+
+      throw new Error("데이터 수신 실패");
     }
 
-    // 1. 시간표 조회 (나이스 중학교 API 규격 완벽 대응)
+    // 1. 시간표 조회
     async function loadTimetable() {
-      const now = new Date();
-      // 학년도(3월 이전이면 전년도) 및 학기(3~8월 1학기, 9~2월 2학기) 계산
-      const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth() + 1;
-      const ay = currentMonth >= 3 ? currentYear : currentYear - 1;
-      const sem = (currentMonth >= 3 && currentMonth <= 8) ? 1 : 2;
-
-      // AY, SEM 필수 인자 포함
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const box = document.getElementById('timetable-box');
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
         const data = await fetchNeisData(neisUrl);
-        
-        // 나이스 API 응답 검증 (에러나 데이터 없음 응답 처리)
-        if (!data || !data.misTimetable || !data.misTimetable[1] || !data.misTimetable[1].row) {
-          const infoMsg = data?.RESULT?.MESSAGE || "등록된 이번 주 시간표가 없습니다.";
-          document.getElementById('timetable-box').innerHTML = `
-            <div style="padding: 24px 0; color: var(--text-muted); line-height: 1.6;">
-              이번 주 시간표 정보가 없습니다.<br>
-              <span style="font-size: 0.75rem;">(${infoMsg})</span>
-            </div>`;
+        const rows = data?.misTimetable?.[1]?.row || [];
+
+        if (rows.length === 0) {
+          const msg = data?.RESULT?.MESSAGE || "등록된 이번 주 시간표가 없습니다.";
+          box.innerHTML = `<div style="padding: 24px 0; color: var(--text-muted);">${msg}</div>`;
           return;
         }
 
-        const rows = data.misTimetable[1].row;
         const dayNames = ['월', '화', '수', '목', '금'];
         let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
 
@@ -192,8 +203,6 @@
           weekDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
-            
-            // 일자 & 교시 매칭
             const match = rows.find(r => r.ALL_TI_YMD === target && String(r.PERIO).replace(/[^0-9]/g, '') === String(p));
             const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
             tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
@@ -202,16 +211,17 @@
         }
         tableHtml += `</tbody></table>`;
 
-        document.getElementById('timetable-box').innerHTML = tableHtml;
+        box.innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        console.error("시간표 처리 오류:", e);
-        document.getElementById('timetable-box').innerHTML = `<p style="color:red; padding: 20px 0;">시간표 통신 오류가 발생했습니다.</p>`;
+        console.error("시간표 호출 에러:", e);
+        box.innerHTML = `<p style="color:red; padding: 20px 0;">시간표를 가져오지 못했습니다. 잠시 후 새로고침 해주세요.</p>`;
       }
     }
 
     // 2. 급식 조회
     async function loadMeals() {
+      const box = document.getElementById('meals-box');
       const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
 
       try {
@@ -251,10 +261,10 @@
           html += `</div>`;
         });
 
-        document.getElementById('meals-box').innerHTML = html;
+        box.innerHTML = html;
       } catch (e) {
-        console.error("급식 오류 상세:", e);
-        document.getElementById('meals-box').innerHTML = `<p style="color:red; padding: 20px 0;">급식 데이터를 불러오지 못했습니다.</p>`;
+        console.error("급식 호출 에러:", e);
+        box.innerHTML = `<p style="color:red; padding: 20px 0;">급식 데이터를 가져오지 못했습니다. 잠시 후 새로고침 해주세요.</p>`;
       }
     }
 
