@@ -61,7 +61,7 @@
 
   <header>
     <h1>🎒 백현중 2학년 3반</h1>
-    <p id="current-date-text">데이터를 불러오는 중...</p>
+    <p id="current-date-text">로딩 중...</p>
   </header>
 
   <div class="nav-tabs">
@@ -76,13 +76,13 @@
         <span>2학년 3반 수업 시간표</span>
         <span id="timetable-range" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>
       </div>
-      <div id="timetable-box" class="loading">시간표를 조회하고 있습니다...</div>
+      <div id="timetable-box" class="loading">시간표를 불러오고 있습니다...</div>
     </div>
   </div>
 
   <!-- 주간 급식 -->
   <div id="tab-meals" style="display: none;">
-    <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
+    <div id="meals-box" class="loading">급식 식단을 불러오고 있습니다...</div>
   </div>
 
   <script>
@@ -135,46 +135,45 @@
       }
     }
 
-    // 타임아웃 3초 내장 고속 프록시 릴레이
-    async function fetchNeisData(targetUrl) {
-      const proxyList = [
-        async () => {
-          const res = await fetch(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`);
-          return await res.json();
-        },
-        async () => {
-          const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`);
-          const wrap = await res.json();
-          return JSON.parse(wrap.contents);
-        },
-        async () => {
-          const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`);
-          return await res.json();
-        }
-      ];
+    // JSONP 방식 직통 데이터 호출 (CORS / 프록시 불필요)
+    function fetchJsonp(url) {
+      return new Promise((resolve, reject) => {
+        const callbackName = 'neis_cb_' + Math.random().toString(36).substr(2, 8);
+        const script = document.createElement('script');
+        
+        window[callbackName] = (data) => {
+          cleanup();
+          resolve(data);
+        };
 
-      for (const fn of proxyList) {
-        try {
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
-          const data = await Promise.race([fn(), timeoutPromise]);
-          if (data) return data;
-        } catch (e) {
-          // 실패 시 다음 프록시로 즉시 이동
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('timeout'));
+        }, 5000);
+
+        function cleanup() {
+          if (timer) clearTimeout(timer);
+          if (document.body.contains(script)) document.body.removeChild(script);
+          delete window[callbackName];
         }
-      }
-      throw new Error("네트워크 연결 실패");
+
+        script.src = `${url}&callback=${callbackName}`;
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('script_error'));
+        };
+
+        document.body.appendChild(script);
+      });
     }
 
+    // 1. 시간표 조회
     async function loadTimetable() {
       const box = document.getElementById('timetable-box');
-      const now = new Date();
-      const ay = now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1;
-      const sem = (now.getMonth() >= 2 && now.getMonth() <= 7) ? 1 : 2;
-
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=2026&SEM=2&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
-        const data = await fetchNeisData(neisUrl);
+        const data = await fetchJsonp(neisUrl);
         const rows = data?.misTimetable?.[1]?.row || [];
 
         if (rows.length === 0) {
@@ -207,16 +206,17 @@
         box.innerHTML = tableHtml;
         document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
       } catch (e) {
-        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">시간표를 불러오지 못했습니다.<br><button onclick="loadTimetable()" style="margin-top:8px; padding:4px 10px; border-radius:6px; border:1px solid #ef4444; background:none; color:#ef4444; cursor:pointer;">다시 시도</button></div>`;
+        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">시간표를 불러오지 못했습니다.</div>`;
       }
     }
 
+    // 2. 급식 조회
     async function loadMeals() {
       const box = document.getElementById('meals-box');
       const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
 
       try {
-        const data = await fetchNeisData(neisUrl);
+        const data = await fetchJsonp(neisUrl);
         const rows = data?.mealServiceDietInfo?.[1]?.row || [];
 
         const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
@@ -254,7 +254,7 @@
 
         box.innerHTML = html;
       } catch (e) {
-        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">급식 데이터를 불러오지 못했습니다.<br><button onclick="loadMeals()" style="margin-top:8px; padding:4px 10px; border-radius:6px; border:1px solid #ef4444; background:none; color:#ef4444; cursor:pointer;">다시 시도</button></div>`;
+        box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">급식 데이터를 불러오지 못했습니다.</div>`;
       }
     }
 
