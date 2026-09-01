@@ -15,6 +15,7 @@
       --border: #E2E8F0;
       --accent: #F59E0B;
       --today-col: #F0FDF4;
+      --tomorrow-col: #EFF6FF;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -25,6 +26,7 @@
         --border: #334155;
         --primary-light: #312E81;
         --today-col: #064E3B33;
+        --tomorrow-col: #1E3A8A33;
       }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif; }
@@ -44,8 +46,10 @@
     table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.85rem; }
     th { padding: 8px 4px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; }
     td { padding: 10px 4px; border-bottom: 1px solid var(--border); }
-    th.today-header { color: var(--primary); font-weight: 700; }
-    td.today-col { background: var(--today-col); font-weight: 700; color: var(--primary); }
+    th.today-header { color: #10B981; font-weight: 700; }
+    th.tomorrow-header { color: var(--primary); font-weight: 700; }
+    td.today-col { background: var(--today-col); font-weight: 700; color: #10B981; }
+    td.tomorrow-col { background: var(--tomorrow-col); font-weight: 700; color: var(--primary); }
     td.period-col { font-weight: 600; color: var(--text-muted); width: 14%; }
 
     .meal-date-badge { display: inline-block; background: var(--primary-light); color: var(--primary); font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
@@ -65,10 +69,11 @@
   </header>
 
   <div class="nav-tabs">
-    <button class="nav-btn active" onclick="switchTab('timetable')">📅 주간 시간표</button>
-    <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
+    <button class="nav-btn active" onclick="switchTab('timetable')">📅 5일 시간표</button>
+    <button class="nav-btn" onclick="switchTab('meals')">🍱 5일 급식</button>
   </div>
 
+  <!-- 시간표 -->
   <div id="tab-timetable">
     <div class="card">
       <div class="card-title">
@@ -79,6 +84,7 @@
     </div>
   </div>
 
+  <!-- 급식 -->
   <div id="tab-meals" style="display: none;">
     <div id="meals-box" class="loading">급식 식단을 불러오고 있습니다...</div>
   </div>
@@ -92,20 +98,39 @@
       CLASS: "3"
     };
 
-    function getWeekRange() {
-      const now = new Date();
-      const currentDay = now.getDay();
-      const distanceToMon = currentDay === 0 ? -6 : 1 - currentDay;
-      const mon = new Date(now);
-      mon.setDate(now.getDate() + distanceToMon);
-
-      const days = [];
-      for (let i = 0; i < 5; i++) {
-        const d = new Date(mon);
-        d.setDate(mon.getDate() + i);
-        days.push(d);
+    // 평일 계산 헬퍼 (주말 건너뛰기)
+    function addWeekdays(baseDate, offsetDays) {
+      let d = new Date(baseDate);
+      let step = offsetDays >= 0 ? 1 : -1;
+      let count = Math.abs(offsetDays);
+      
+      while (count > 0) {
+        d.setDate(d.getDate() + step);
+        const day = d.getDay();
+        if (day !== 0 && day !== 6) {
+          count--;
+        }
       }
-      return days;
+      return d;
+    }
+
+    // 내일 기준 앞 2일, 내일, 뒤 2일 (총 5일) 계산
+    function getFiveDaysRange() {
+      const today = new Date();
+      let tomorrow = new Date(today);
+      tomorrow.setDate(today.getDate() + 1);
+
+      // 내일이 주말이면 다음 주 월요일로 설정
+      if (tomorrow.getDay() === 6) tomorrow.setDate(tomorrow.getDate() + 2);
+      if (tomorrow.getDay() === 0) tomorrow.setDate(tomorrow.getDate() + 1);
+
+      return [
+        addWeekdays(tomorrow, -2),
+        addWeekdays(tomorrow, -1),
+        tomorrow,
+        addWeekdays(tomorrow, 1),
+        addWeekdays(tomorrow, 2)
+      ];
     }
 
     const formatDateYMD = (d) => {
@@ -115,10 +140,13 @@
       return `${y}${m}${day}`;
     };
 
-    const weekDays = getWeekRange();
-    const fromYMD = formatDateYMD(weekDays[0]);
-    const toYMD = formatDateYMD(weekDays[4]);
-    const todayYMD = formatDateYMD(new Date());
+    const targetDays = getFiveDaysRange();
+    const fromYMD = formatDateYMD(targetDays[0]);
+    const toYMD = formatDateYMD(targetDays[4]);
+
+    const todayDate = new Date();
+    const todayYMD = formatDateYMD(todayDate);
+    const tomorrowYMD = formatDateYMD(targetDays[2]);
 
     function switchTab(tab) {
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -167,33 +195,44 @@
     // 1. 시간표 조회
     async function loadTimetable() {
       const box = document.getElementById('timetable-box');
-      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=2026&SEM=2&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+      const ay = targetDays[2].getMonth() >= 2 ? targetDays[2].getFullYear() : targetDays[2].getFullYear() - 1;
+      const sem = (targetDays[2].getMonth() >= 2 && targetDays[2].getMonth() <= 7) ? 1 : 2;
+
+      const neisUrl = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=150&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
 
       try {
         const data = await fetchJsonp(neisUrl);
         const rows = data?.misTimetable?.[1]?.row || [];
 
         if (rows.length === 0) {
-          box.innerHTML = `<div style="padding: 24px 0; color: var(--text-muted);">등록된 이번 주 시간표가 없습니다.</div>`;
+          box.innerHTML = `<div style="padding: 24px 0; color: var(--text-muted);">등록된 시간표 데이터가 없습니다.</div>`;
           return;
         }
 
-        const dayNames = ['월', '화', '수', '목', '금'];
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
         let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
 
-        weekDays.forEach((d, idx) => {
-          const isToday = formatDateYMD(d) === todayYMD;
-          tableHtml += `<th class="${isToday ? 'today-header' : ''}">${dayNames[idx]}<br><span style="font-size:0.7rem; font-weight:normal;">${d.getMonth()+1}/${d.getDate()}</span></th>`;
+        targetDays.forEach(d => {
+          const ymd = formatDateYMD(d);
+          const isToday = ymd === todayYMD;
+          const isTomorrow = ymd === tomorrowYMD;
+          
+          let headerClass = '';
+          let badge = '';
+          if (isToday) { headerClass = 'today-header'; badge = '<br><span style="font-size:0.65rem;">(오늘)</span>'; }
+          else if (isTomorrow) { headerClass = 'tomorrow-header'; badge = '<br><span style="font-size:0.65rem;">(내일)</span>'; }
+
+          tableHtml += `<th class="${headerClass}">${dayNames[d.getDay()]}<br><span style="font-size:0.7rem; font-weight:normal;">${d.getMonth()+1}/${d.getDate()}</span>${badge}</th>`;
         });
         tableHtml += `</tr></thead><tbody>`;
 
         for (let p = 1; p <= 7; p++) {
           tableHtml += `<tr><td class="period-col">${p}교시</td>`;
-          weekDays.forEach(d => {
+          targetDays.forEach(d => {
             const target = formatDateYMD(d);
             const isToday = target === todayYMD;
+            const isTomorrow = target === tomorrowYMD;
             
-            // 해당 날짜/교시 데이터 중 유효한 과목명이 있는 항목을 우선 탐색
             const matchedRows = rows.filter(r => {
               const rYmd = String(r.ALL_TI_YMD || '').trim();
               const rPerio = String(r.PERIO || '').replace(/[^0-9]/g, '');
@@ -211,14 +250,18 @@
               }
             }
 
-            tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
+            let cellClass = '';
+            if (isToday) cellClass = 'today-col';
+            else if (isTomorrow) cellClass = 'tomorrow-col';
+
+            tableHtml += `<td class="${cellClass}">${subject}</td>`;
           });
           tableHtml += `</tr>`;
         }
         tableHtml += `</tbody></table>`;
 
         box.innerHTML = tableHtml;
-        document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
+        document.getElementById('timetable-range').innerText = `${targetDays[0].getMonth()+1}.${targetDays[0].getDate()} ~ ${targetDays[4].getMonth()+1}.${targetDays[4].getDate()}`;
       } catch (e) {
         console.error(e);
         box.innerHTML = `<div style="padding: 20px 0; color: #ef4444; font-size: 0.9rem;">시간표를 불러오지 못했습니다.</div>`;
@@ -228,7 +271,7 @@
     // 2. 급식 조회
     async function loadMeals() {
       const box = document.getElementById('meals-box');
-      const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
+      const neisUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=15&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
 
       try {
         const data = await fetchJsonp(neisUrl);
@@ -237,15 +280,26 @@
         const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
         let html = '';
 
-        weekDays.forEach(d => {
+        targetDays.forEach(d => {
           const ymd = formatDateYMD(d);
           const isToday = ymd === todayYMD;
+          const isTomorrow = ymd === tomorrowYMD;
           const meal = rows.find(r => r.MLSV_YMD === ymd);
 
+          let borderStyle = '';
+          let tagBadge = '';
+          if (isToday) {
+            borderStyle = 'border: 2px solid #10B981;';
+            tagBadge = '🌟 오늘';
+          } else if (isTomorrow) {
+            borderStyle = 'border: 2px solid var(--primary);';
+            tagBadge = '📌 내일';
+          }
+
           html += `
-            <div class="card" style="${isToday ? 'border: 2px solid var(--primary);' : ''}">
+            <div class="card" style="${borderStyle}">
               <div class="card-title">
-                <span>${d.getMonth()+1}월 ${d.getDate()}일 (${dayNames[d.getDay()]}) ${isToday ? '🌟 오늘' : ''}</span>
+                <span>${d.getMonth()+1}월 ${d.getDate()}일 (${dayNames[d.getDay()]}) ${tagBadge}</span>
                 <span class="meal-date-badge">${meal ? meal.MMEAL_SC_NM : '중식'}</span>
               </div>
           `;
