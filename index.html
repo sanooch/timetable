@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>가은이 학교생활 알리미</title>
+  <style>
+    :root {
+      --primary: #4F46E5;
+      --primary-light: #EEF2FF;
+      --bg: #F8FAFC;
+      --card-bg: #FFFFFF;
+      --text: #1E293B;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --accent: #F59E0B;
+      --today-col: #F0FDF4;
+      --today-border: #86EFAC;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0F172A;
+        --card-bg: #1E293B;
+        --text: #F8FAFC;
+        --text-muted: #94A3B8;
+        --border: #334155;
+        --primary-light: #312E81;
+        --today-col: #064E3B33;
+        --today-border: #059669;
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 16px; max-width: 600px; margin: 0 auto; min-height: 100vh; }
+    
+    header { text-align: center; margin-bottom: 20px; padding-top: 8px; }
+    header h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); display: flex; align-items: center; justify-content: center; gap: 8px; }
+    header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
+
+    .nav-tabs { display: flex; gap: 8px; background: var(--border); padding: 4px; border-radius: 12px; margin-bottom: 16px; }
+    .nav-btn { flex: 1; padding: 10px; border: none; border-radius: 8px; font-weight: 600; font-size: 0.95rem; background: transparent; color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
+    .nav-btn.active { background: var(--card-bg); color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+    .card { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border); padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+    .card-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+    /* 시간표 테이블 */
+    table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.85rem; }
+    th { padding: 8px 4px; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; }
+    td { padding: 10px 4px; border-bottom: 1px solid var(--border); }
+    th.today-header { color: var(--primary); font-weight: 700; }
+    td.today-col { background: var(--today-col); font-weight: 700; color: var(--primary); }
+    td.period-col { font-weight: 600; color: var(--text-muted); width: 14%; }
+
+    /* 급식 리스트 */
+    .meal-date-badge { display: inline-block; background: var(--primary-light); color: var(--primary); font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 6px; }
+    .meal-list { list-style: none; margin-top: 8px; }
+    .meal-list li { padding: 6px 0; border-bottom: 1px dashed var(--border); font-size: 0.95rem; display: flex; justify-content: space-between; }
+    .meal-list li:last-child { border-bottom: none; }
+    .calorie-tag { font-size: 0.8rem; color: var(--accent); font-weight: 600; margin-top: 8px; text-align: right; }
+
+    .loading { text-align: center; padding: 30px; color: var(--text-muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🎒 백현중 2학년 3반</h1>
+    <p id="current-date-text">데이터를 불러오는 중...</p>
+  </header>
+
+  <div class="nav-tabs">
+    <button class="nav-btn active" onclick="switchTab('timetable')">📅 주간 시간표</button>
+    <button class="nav-btn" onclick="switchTab('meals')">🍱 주간 급식</button>
+  </div>
+
+  <!-- 시간표 화면 -->
+  <div id="tab-timetable">
+    <div class="card">
+      <div class="card-title">
+        <span>이번 주 수업 시간표</span>
+        <span id="timetable-range" style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;"></span>
+      </div>
+      <div id="timetable-box" class="loading">시간표를 조회하고 있습니다...</div>
+    </div>
+  </div>
+
+  <!-- 급식 화면 -->
+  <div id="tab-meals" style="display: none;">
+    <div id="meals-box" class="loading">급식 식단을 조회하고 있습니다...</div>
+  </div>
+
+  <script>
+    // ========== 설정 정보 ==========
+    const CONFIG = {
+      API_KEY: "b92966f92f674df290705b1fd8e6087a",  // 본인의 NEIS API 키 입력
+      ATPT_CODE: "J10",        // 경기도교육청
+      SCHOOL_CODE: "7551016",  // 백현중학교
+      GRADE: "2",
+      CLASS: "3"
+    };
+
+    // 주간 날짜 계산 (월~금)
+    function getWeekRange() {
+      const now = new Date();
+      const currentDay = now.getDay(); // 0: 일, 1: 월 ...
+      const distanceToMon = currentDay === 0 ? -6 : 1 - currentDay;
+      
+      const mon = new Date(now);
+      mon.setDate(now.getDate() + distanceToMon);
+
+      const days = [];
+      for (let i = 0; i < 5; i++) {
+        const d = new Date(mon);
+        d.setDate(mon.getDate() + i);
+        days.push(d);
+      }
+      return days;
+    }
+
+    const formatDateYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}${m}${day}`;
+    };
+
+    const weekDays = getWeekRange();
+    const fromYMD = formatDateYMD(weekDays[0]);
+    const toYMD = formatDateYMD(weekDays[4]);
+    const todayYMD = formatDateYMD(new Date());
+
+    // 탭 전환
+    function switchTab(tab) {
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+      if (tab === 'timetable') {
+        document.querySelector('.nav-btn:nth-child(1)').classList.add('active');
+        document.getElementById('tab-timetable').style.display = 'block';
+        document.getElementById('tab-meals').style.display = 'none';
+      } else {
+        document.querySelector('.nav-btn:nth-child(2)').classList.add('active');
+        document.getElementById('tab-timetable').style.display = 'none';
+        document.getElementById('tab-meals').style.display = 'block';
+      }
+    }
+
+    // 1. 시간표 불러오기
+    async function loadTimetable() {
+      const now = new Date();
+      const ay = now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1;
+      const sem = (now.getMonth() >= 2 && now.getMonth() <= 7) ? 1 : 2;
+
+      const url = `https://open.neis.go.kr/hub/misTimetable?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=100&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&AY=${ay}&SEM=${sem}&GRADE=${CONFIG.GRADE}&CLASS_NM=${CONFIG.CLASS}&TI_FROM_YMD=${fromYMD}&TI_TO_YMD=${toYMD}`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const rows = data?.misTimetable?.[1]?.row || [];
+
+        const dayNames = ['월', '화', '수', '목', '금'];
+        let tableHtml = `<table><thead><tr><th style="width:14%;">교시</th>`;
+
+        weekDays.forEach((d, idx) => {
+          const isToday = formatDateYMD(d) === todayYMD;
+          tableHtml += `<th class="${isToday ? 'today-header' : ''}">${dayNames[idx]}<br><span style="font-size:0.7rem; font-weight:normal;">${d.getMonth()+1}/${d.getDate()}</span></th>`;
+        });
+        tableHtml += `</tr></thead><tbody>`;
+
+        for (let p = 1; p <= 7; p++) {
+          tableHtml += `<tr><td class="period-col">${p}교시</td>`;
+          weekDays.forEach(d => {
+            const target = formatDateYMD(d);
+            const isToday = target === todayYMD;
+            const match = rows.find(r => r.ALL_TI_YMD === target && r.PERIO === String(p));
+            const subject = match ? match.ITRT_CNTNT.replace(/[\[\]]/g, '') : '-';
+            tableHtml += `<td class="${isToday ? 'today-col' : ''}">${subject}</td>`;
+          });
+          tableHtml += `</tr>`;
+        }
+        tableHtml += `</tbody></table>`;
+
+        document.getElementById('timetable-box').innerHTML = tableHtml;
+        document.getElementById('timetable-range').innerText = `${weekDays[0].getMonth()+1}.${weekDays[0].getDate()} ~ ${weekDays[4].getMonth()+1}.${weekDays[4].getDate()}`;
+      } catch (e) {
+        document.getElementById('timetable-box').innerHTML = `<p style="color:red;">시간표 데이터를 불러오지 못했습니다.</p>`;
+      }
+    }
+
+    // 2. 급식 불러오기
+    async function loadMeals() {
+      const url = `https://open.neis.go.kr/hub/mealServiceDietInfo?KEY=${CONFIG.API_KEY}&Type=json&pIndex=1&pSize=10&ATPT_OFCDC_SC_CODE=${CONFIG.ATPT_CODE}&SD_SCHUL_CODE=${CONFIG.SCHOOL_CODE}&MLSV_FROM_YMD=${fromYMD}&MLSV_TO_YMD=${toYMD}`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const rows = data?.mealServiceDietInfo?.[1]?.row || [];
+
+        const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+        let html = '';
+
+        weekDays.forEach(d => {
+          const ymd = formatDateYMD(d);
+          const isToday = ymd === todayYMD;
+          const meal = rows.find(r => r.MLSV_YMD === ymd);
+
+          html += `
+            <div class="card" style="${isToday ? 'border: 2px solid var(--primary);' : ''}">
+              <div class="card-title">
+                <span>${d.getMonth()+1}월 ${d.getDate()}일 (${dayNames[d.getDay()]}) ${isToday ? '🌟 오늘' : ''}</span>
+                <span class="meal-date-badge">${meal ? meal.MMEAL_SC_NM : '중식'}</span>
+              </div>
+          `;
+
+          if (meal && meal.DDISH_NM) {
+            // 알레르기 번호 제거 및 메뉴 정제
+            const menuItems = meal.DDISH_NM.split('<br/>').map(item => item.replace(/\([0-9\.]+\)/g, '').trim()).filter(Boolean);
+            html += `<ul class="meal-list">`;
+            menuItems.forEach(item => {
+              html += `<li><span>${item}</span></li>`;
+            });
+            html += `</ul>`;
+            if (meal.CAL_INFO) {
+              html += `<div class="calorie-tag">🔥 ${meal.CAL_INFO}</div>`;
+            }
+          } else {
+            html += `<p style="color: var(--text-muted); font-size: 0.9rem; padding: 10px 0;">급식 일정이 없습니다.</p>`;
+          }
+
+          html += `</div>`;
+        });
+
+        document.getElementById('meals-box').innerHTML = html;
+      } catch (e) {
+        document.getElementById('meals-box').innerHTML = `<p style="color:red;">급식 데이터를 불러오지 못했습니다.</p>`;
+      }
+    }
+
+    // 초기 실행
+    window.onload = () => {
+      const today = new Date();
+      document.getElementById('current-date-text').innerText = `${today.getFullYear()}년 ${today.getMonth()+1}월 ${today.getDate()}일 기준`;
+      loadTimetable();
+      loadMeals();
+    };
+  </script>
+</body>
+</html>
